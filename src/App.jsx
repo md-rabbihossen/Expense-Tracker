@@ -823,12 +823,6 @@ const SavingsPage = ({ savings, setCurrentPage, updateMonthlyGoal }) => {
         >
           See All
         </button>
-        <button
-          onClick={() => setCurrentPage("add-goal")}
-          className="text-white bg-[#1D41F9] p-2 rounded-full"
-        >
-          <Plus size={20} />
-        </button>
       </header>
       <main className="flex-grow p-4 sm:p-6 space-y-6 overflow-y-auto">
         <div className="text-center">
@@ -868,11 +862,22 @@ const SavingsPage = ({ savings, setCurrentPage, updateMonthlyGoal }) => {
           </div>
           <p className="text-sm text-gray-400 mt-2">Tap to update</p>
         </button>
+
         <YourGoals
           goals={savings.goals}
           setCurrentPage={setCurrentPage}
           isPreview={true}
         />
+
+        <div className="bg-white p-4 rounded-2xl shadow-sm">
+          <button
+            onClick={() => setCurrentPage("add-goal")}
+            className="w-full flex items-center justify-center py-4 text-[#1D41F9] font-semibold hover:bg-gray-50 rounded-xl transition-colors"
+          >
+            <Plus size={20} className="mr-2" />
+            Add Goal
+          </button>
+        </div>
       </main>
       {showMonthlyGoalModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -958,12 +963,7 @@ const YourGoalsPage = ({
           <ArrowLeft size={24} className="text-gray-800" />
         </button>
         <h1 className="text-2xl font-bold text-gray-800">Your Goals</h1>
-        <button
-          onClick={() => setCurrentPage("add-goal")}
-          className="text-white bg-[#1D41F9] p-2 rounded-full"
-        >
-          <Plus size={20} />
-        </button>
+        <div className="w-10"></div>
       </header>
       <main className="flex-grow p-4 sm:p-6 overflow-y-auto">
         <YourGoals
@@ -2167,7 +2167,12 @@ const YourGoals = ({
               </div>
             )}
             {isPreview && (
-              <p className="text-sm text-gray-400 mt-2">Tap to Add Money</p>
+              <button
+                onClick={() => onGoalClick(goal)}
+                className="text-sm text-gray-400 mt-2 hover:text-gray-600 transition-colors"
+              >
+                Tap to Add Money
+              </button>
             )}
           </div>
         );
