@@ -456,7 +456,13 @@ export default function App() {
           />
         );
       case "budget":
-        return <BudgetPage data={data} setCurrentPage={setCurrentPage} />;
+        return (
+          <BudgetPage
+            data={data}
+            setCurrentPage={setCurrentPage}
+            updateBudget={updateBudget}
+          />
+        );
       case "overview":
       default:
         return (
@@ -484,8 +490,8 @@ export default function App() {
 
   return (
     <div className="bg-gray-50 flex justify-center items-center min-h-screen">
-      <div className="w-full max-w-md md:max-w-4xl bg-gray-100 font-sans shadow-lg rounded-lg flex flex-col h-screen md:h-[90vh]">
-        <div className="flex-grow overflow-hidden flex flex-col">
+      <div className="w-full max-w-md md:max-w-4xl bg-gray-100 font-sans shadow-lg rounded-lg flex flex-col h-screen md:h-[90vh] relative">
+        <div className="flex-grow overflow-hidden flex flex-col pb-20">
           {renderPage()}
         </div>
         <input
@@ -502,12 +508,14 @@ export default function App() {
           className="hidden"
           accept="image/*"
         />
-        <BottomNav
-          activeTab={currentPage}
-          setCurrentPage={setCurrentPage}
-          unreadNotifications={data.unreadNotifications}
-          setData={setData}
-        />
+        <div className="absolute bottom-0 left-0 right-0">
+          <BottomNav
+            activeTab={currentPage}
+            setCurrentPage={setCurrentPage}
+            unreadNotifications={data.unreadNotifications}
+            setData={setData}
+          />
+        </div>
       </div>
     </div>
   );
@@ -2204,19 +2212,70 @@ const Checkmark = () => (
   </svg>
 );
 
-const BudgetPage = ({ data, setCurrentPage }) => (
-  <>
-    <PageHeader title="Budget" onBack={() => setCurrentPage("overview")} />
-    <main className="flex-grow p-4 sm:p-6 space-y-6 overflow-y-auto">
-      <div className="bg-white p-6 rounded-2xl shadow-sm text-center">
-        <p className="text-gray-500">Monthly Budget</p>
-        <p className="text-4xl font-bold text-gray-800 my-2">
-          ${data.monthlyLimit.toFixed(2)}
-        </p>
-      </div>
-    </main>
-  </>
-);
+const BudgetPage = ({ data, setCurrentPage, updateBudget }) => {
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [newBudget, setNewBudget] = useState(data.monthlyLimit);
+
+  const handleUpdateBudget = (e) => {
+    e.preventDefault();
+    updateBudget(newBudget);
+    setShowBudgetModal(false);
+  };
+
+  return (
+    <>
+      <PageHeader title="Budget" onBack={() => setCurrentPage("overview")} />
+      <main className="flex-grow p-4 sm:p-6 space-y-6 overflow-y-auto">
+        <button
+          onClick={() => setShowBudgetModal(true)}
+          className="bg-white p-6 rounded-2xl shadow-sm text-center w-full"
+        >
+          <p className="text-gray-500">Monthly Budget</p>
+          <p className="text-4xl font-bold text-gray-800 my-2">
+            ${data.monthlyLimit.toFixed(2)}
+          </p>
+          <p className="text-sm text-gray-400">Tap to update</p>
+        </button>
+      </main>
+      {showBudgetModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <form
+            onSubmit={handleUpdateBudget}
+            className="bg-white p-6 rounded-2xl shadow-lg w-80"
+          >
+            <h3 className="text-lg font-bold mb-4">Update Monthly Budget</h3>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                $
+              </span>
+              <input
+                type="number"
+                value={newBudget}
+                onChange={(e) => setNewBudget(e.target.value)}
+                className="w-full p-3 pl-7 bg-gray-100 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-[#1D41F9]"
+              />
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowBudgetModal(false)}
+                className="px-4 py-2 rounded-lg text-gray-600 bg-gray-200 font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-lg bg-[#1D41F9] text-white font-semibold"
+              >
+                Update
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
+  );
+};
 
 const BottomNav = ({
   activeTab,
