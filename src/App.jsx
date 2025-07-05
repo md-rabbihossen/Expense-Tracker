@@ -26,7 +26,7 @@ const iconMap = {
 // Main App Component
 export default function App() {
   const initialState = {
-    profileImage: "../public/assets/profile.png",
+    profileImage: "https://avatar.iran.liara.run/public/boy",
     userName: "Md. Rahat Hossen",
     userEmail: "mohammadrahathossen@gmail.com",
     totalSalary: 0,
