@@ -332,7 +332,7 @@ export default function App() {
           } else {
             alert("Invalid JSON format.");
           }
-        } catch (error) {
+        } catch {
           alert("Error parsing JSON file.");
         }
       };
@@ -390,6 +390,7 @@ export default function App() {
             savings={data.savings}
             setCurrentPage={setCurrentPage}
             updateMonthlyGoal={updateMonthlyGoal}
+            addMoneyToGoal={addMoneyToGoal}
           />
         );
       case "your-goals":
@@ -792,14 +793,34 @@ const EntriesPage = ({ entries, setCurrentPage }) => {
   );
 };
 
-const SavingsPage = ({ savings, setCurrentPage, updateMonthlyGoal }) => {
+const SavingsPage = ({
+  savings,
+  setCurrentPage,
+  updateMonthlyGoal,
+  addMoneyToGoal,
+}) => {
   const [showMonthlyGoalModal, setShowMonthlyGoalModal] = useState(false);
   const [newMonthlyGoal, setNewMonthlyGoal] = useState(savings.monthlyGoal);
+  const [showAddMoneyModal, setShowAddMoneyModal] = useState(false);
+  const [selectedGoal, setSelectedGoal] = useState(null);
+  const [amountToAdd, setAmountToAdd] = useState("");
 
   const handleUpdateMonthlyGoal = (e) => {
     e.preventDefault();
     updateMonthlyGoal(newMonthlyGoal);
     setShowMonthlyGoalModal(false);
+  };
+
+  const handleAddMoneyClick = (goal) => {
+    setSelectedGoal(goal);
+    setShowAddMoneyModal(true);
+  };
+
+  const handleConfirmAddMoney = (e) => {
+    e.preventDefault();
+    addMoneyToGoal(selectedGoal.id, parseFloat(amountToAdd));
+    setShowAddMoneyModal(false);
+    setAmountToAdd("");
   };
 
   const percentage = Math.min(
@@ -867,6 +888,7 @@ const SavingsPage = ({ savings, setCurrentPage, updateMonthlyGoal }) => {
           goals={savings.goals}
           setCurrentPage={setCurrentPage}
           isPreview={true}
+          onGoalClick={handleAddMoneyClick}
         />
 
         <div className="bg-white p-4 rounded-2xl shadow-sm">
@@ -915,6 +937,45 @@ const SavingsPage = ({ savings, setCurrentPage, updateMonthlyGoal }) => {
           </form>
         </div>
       )}
+      {showAddMoneyModal && selectedGoal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <form
+            onSubmit={handleConfirmAddMoney}
+            className="bg-white p-6 rounded-2xl shadow-lg w-80"
+          >
+            <h3 className="text-lg font-bold mb-4">
+              Add to "{selectedGoal.name}"
+            </h3>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                $
+              </span>
+              <input
+                type="number"
+                value={amountToAdd}
+                onChange={(e) => setAmountToAdd(e.target.value)}
+                placeholder="1000"
+                className="w-full p-3 pl-7 bg-gray-100 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-[#1D41F9]"
+              />
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowAddMoneyModal(false)}
+                className="px-4 py-2 rounded-lg text-gray-600 bg-gray-200 font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-lg bg-[#1D41F9] text-white font-semibold"
+              >
+                Add
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </>
   );
 };
@@ -922,7 +983,6 @@ const SavingsPage = ({ savings, setCurrentPage, updateMonthlyGoal }) => {
 const YourGoalsPage = ({
   goals,
   setCurrentPage,
-  updateSavingsGoal,
   addMoneyToGoal,
   deleteGoal,
 }) => {
@@ -1548,7 +1608,6 @@ const ExpenseDetailsPage = ({ data, setCurrentPage, updateBudget }) => {
 const ReminderPage = ({
   reminders,
   setCurrentPage,
-  addReminder,
   toggleReminder,
   hasGoals,
 }) => {
@@ -2027,9 +2086,21 @@ const ActionButtons = ({ activeAction, setActiveAction, setCurrentPage }) => {
         </button>
       </div>
       <div className="flex justify-center mt-4 space-x-1">
-        <div className="w-3 h-1.5 bg-[#1D41F9] rounded-full"></div>
-        <div className="w-1.5 h-1.5 bg-gray-300 rounded-full"></div>
-        <div className="w-1.5 h-1.5 bg-gray-300 rounded-full"></div>
+        <div
+          className={`w-1.5 h-1.5 rounded-full transition-colors duration-200 ${
+            activeAction === "savings" ? "bg-[#1D41F9] w-3" : "bg-gray-300"
+          }`}
+        ></div>
+        <div
+          className={`w-1.5 h-1.5 rounded-full transition-colors duration-200 ${
+            activeAction === "remind" ? "bg-[#1D41F9] w-3" : "bg-gray-300"
+          }`}
+        ></div>
+        <div
+          className={`w-1.5 h-1.5 rounded-full transition-colors duration-200 ${
+            activeAction === "budget" ? "bg-[#1D41F9] w-3" : "bg-gray-300"
+          }`}
+        ></div>
       </div>
     </div>
   );
