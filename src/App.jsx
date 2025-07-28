@@ -1,20 +1,26 @@
 import {
   ArrowLeft,
-  Bell,
+  BarChart3,
   Bike,
   Calendar as CalendarIcon,
   ChevronRight,
+  DollarSign,
   Download,
+  FileText,
   Home,
   MoreHorizontal,
   Pencil,
   Plus,
+  Search,
+  Settings,
   Smartphone,
+  Target,
+  TrendingDown,
+  TrendingUp,
   Upload,
-  User,
   Wallet,
 } from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Icon Map for serializing and deserializing icons from localStorage
 const iconMap = {
@@ -23,12 +29,68 @@ const iconMap = {
   Wallet,
 };
 
-// Main App Component
+// Enhanced utility functions
+const formatCurrency = (amount, currency = "USD") => {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(amount);
+};
+
+const formatDate = (date, format = "short") => {
+  const d = new Date(date);
+  if (format === "short") {
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  return d.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
+const validateAmount = (amount) => {
+  const num = parseFloat(amount);
+  return !isNaN(num) && num > 0 && num < 1000000;
+};
+
+const validateText = (text, minLength = 1, maxLength = 50) => {
+  return (
+    text && text.trim().length >= minLength && text.trim().length <= maxLength
+  );
+};
+
+// Enhanced categories
+const expenseCategories = [
+  { name: "Food & Dining", icon: "🍔" },
+  { name: "Transportation", icon: "🚗" },
+  { name: "Shopping", icon: "🛍️" },
+  { name: "Entertainment", icon: "🎬" },
+  { name: "Bills & Utilities", icon: "💡" },
+  { name: "Healthcare", icon: "🏥" },
+  { name: "Education", icon: "📚" },
+  { name: "Travel", icon: "✈️" },
+  { name: "Personal", icon: "👤" },
+];
+
+const incomeCategories = [
+  { name: "Salary", icon: "💰" },
+  { name: "Freelance", icon: "💻" },
+  { name: "Business", icon: "🏢" },
+  { name: "Investment", icon: "📈" },
+  { name: "Gift", icon: "🎁" },
+  { name: "Other", icon: "💵" },
+];
+
 export default function App() {
   const initialState = {
     profileImage: "https://avatar.iran.liara.run/public/boy",
     userName: "Md. Rahat Hossen",
     userEmail: "mohammadrahathossen@gmail.com",
+    currency: "USD",
     totalSalary: 0,
     totalExpense: 0,
     monthlyLimit: 8000.0,
@@ -42,53 +104,267 @@ export default function App() {
     reminders: [],
     notifications: [],
     unreadNotifications: false,
+    settings: {
+      theme: "light",
+      notifications: true,
+      autoBackup: true,
+      currency: "USD",
+    },
     lastReset: new Date().toLocaleDateString("en-CA", {
       year: "numeric",
       month: "2-digit",
-    }), // YYYY-MM
+    }),
+    version: "2.0.0",
   };
 
   const [data, setData] = useState(() => {
-    const savedData = localStorage.getItem("financeData");
-    if (savedData) {
-      const parsedData = JSON.parse(savedData);
-      if (!parsedData.profileImage)
-        parsedData.profileImage = initialState.profileImage;
-      if (!parsedData.userName) parsedData.userName = initialState.userName;
-      if (!parsedData.userEmail) parsedData.userEmail = initialState.userEmail;
-      if (!parsedData.reminders) parsedData.reminders = initialState.reminders;
-      if (!parsedData.notifications)
-        parsedData.notifications = initialState.notifications;
-      if (parsedData.unreadNotifications === undefined)
-        parsedData.unreadNotifications = initialState.unreadNotifications;
+    try {
+      const savedData = localStorage.getItem("financeData");
+      if (savedData) {
+        const parsedData = JSON.parse(savedData);
 
-      const now = new Date();
-      const currentMonthYear = now.toLocaleDateString("en-CA", {
-        year: "numeric",
-        month: "2-digit",
-      });
+        // Migrate old data and ensure all fields exist
+        const migratedData = { ...initialState, ...parsedData };
+        if (!migratedData.settings)
+          migratedData.settings = initialState.settings;
+        if (!migratedData.currency)
+          migratedData.currency = initialState.currency;
 
-      if (parsedData.lastReset !== currentMonthYear) {
-        parsedData.lastReset = currentMonthYear;
-        parsedData.savings.monthlyContributions = 0;
-        if (parsedData.savings.goals) {
-          parsedData.savings.goals.forEach((g) => (g.monthlyContributions = 0));
+        // Monthly reset logic
+        const now = new Date();
+        const currentMonthYear = now.toLocaleDateString("en-CA", {
+          year: "numeric",
+          month: "2-digit",
+        });
+
+        if (migratedData.lastReset !== currentMonthYear) {
+          migratedData.lastReset = currentMonthYear;
+          migratedData.savings.monthlyContributions = 0;
+          if (migratedData.savings.goals) {
+            migratedData.savings.goals.forEach(
+              (g) => (g.monthlyContributions = 0)
+            );
+          }
         }
-      }
 
-      return parsedData;
+        return migratedData;
+      }
+      return initialState;
+    } catch (error) {
+      console.error("Error loading saved data:", error);
+      return initialState;
     }
-    return initialState;
   });
 
   const [currentPage, setCurrentPage] = useState("overview");
   const [activeAction, setActiveAction] = useState("savings");
+  const [isLoading, setIsLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategory, setFilterCategory] = useState("all");
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
+  // Enhanced analytics calculations
+  const analytics = useMemo(() => {
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+
+    const monthlyEntries = data.entries.filter((entry) => {
+      const entryDate = new Date(entry.date);
+      return (
+        entryDate.getMonth() === currentMonth &&
+        entryDate.getFullYear() === currentYear
+      );
+    });
+
+    const monthlyIncome = monthlyEntries
+      .filter((e) => e.transactionType === "income")
+      .reduce((acc, entry) => acc + entry.amount, 0);
+
+    const monthlyExpense = monthlyEntries
+      .filter((e) => e.transactionType === "expense")
+      .reduce((acc, entry) => acc + entry.amount, 0);
+
+    const savingsRate =
+      monthlyIncome > 0
+        ? ((monthlyIncome - monthlyExpense) / monthlyIncome) * 100
+        : 0;
+
+    // Category breakdown
+    const categorySpending = {};
+    monthlyEntries
+      .filter((e) => e.transactionType === "expense")
+      .forEach((entry) => {
+        const category = entry.type || entry.category || "Other";
+        categorySpending[category] =
+          (categorySpending[category] || 0) + entry.amount;
+      });
+
+    return {
+      monthlyIncome,
+      monthlyExpense,
+      savingsRate,
+      categorySpending,
+      totalBalance: data.totalSalary - data.totalExpense,
+    };
+  }, [data.entries, data.totalSalary, data.totalExpense]);
+
+  // Enhanced notification system
+  const addNotification = useCallback((text, type = "info") => {
+    const notification = {
+      id: Date.now() + Math.random(),
+      text,
+      type,
+      timestamp: new Date().toISOString(),
+      read: false,
+    };
+
+    setData((prevData) => ({
+      ...prevData,
+      notifications: [notification, ...prevData.notifications.slice(0, 49)],
+      unreadNotifications: true,
+    }));
+  }, []);
+
+  // Auto-save with error handling
   useEffect(() => {
-    localStorage.setItem("financeData", JSON.stringify(data));
-  }, [data]);
+    try {
+      localStorage.setItem("financeData", JSON.stringify(data));
+    } catch (error) {
+      console.error("Error saving data:", error);
+      addNotification(
+        "Failed to save data. Please check your storage space.",
+        "error"
+      );
+    }
+  }, [data, addNotification]);
+
+  // Enhanced transaction handler
+  const addTransaction = useCallback(
+    (newTransaction) => {
+      if (
+        !validateAmount(newTransaction.amount) ||
+        !validateText(newTransaction.type)
+      ) {
+        addNotification("Invalid transaction data", "error");
+        return false;
+      }
+
+      const transaction = {
+        ...newTransaction,
+        id: Date.now() + Math.random(),
+        timestamp: new Date().toISOString(),
+        amount: parseFloat(newTransaction.amount),
+      };
+
+      setData((prevData) => {
+        const newData = { ...prevData };
+        newData.entries = [transaction, ...newData.entries];
+
+        if (transaction.transactionType === "income") {
+          newData.totalSalary += transaction.amount;
+        } else {
+          newData.totalExpense += transaction.amount;
+        }
+
+        return newData;
+      });
+
+      addNotification(
+        `${
+          transaction.transactionType === "income" ? "Income" : "Expense"
+        } of ${formatCurrency(transaction.amount)} added successfully!`,
+        "success"
+      );
+      return true;
+    },
+    [addNotification]
+  );
+
+  // Export functionality
+  const exportData = useCallback(
+    (format = "json") => {
+      try {
+        if (format === "json") {
+          const exportData = {
+            ...data,
+            exportDate: new Date().toISOString(),
+            version: data.version,
+          };
+
+          const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+            type: "application/json",
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `expense-tracker-${
+            new Date().toISOString().split("T")[0]
+          }.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        } else if (format === "csv") {
+          const headers = [
+            "Date",
+            "Type",
+            "Category",
+            "Amount",
+            "Description",
+            "Payment Method",
+          ];
+          const csvData = [
+            headers.join(","),
+            ...data.entries.map((entry) =>
+              [
+                entry.date,
+                entry.transactionType,
+                entry.type,
+                entry.amount,
+                entry.description || "",
+                entry.paymentMethod || "",
+              ].join(",")
+            ),
+          ].join("\n");
+
+          const blob = new Blob([csvData], { type: "text/csv" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `expense-tracker-${
+            new Date().toISOString().split("T")[0]
+          }.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+
+        addNotification(`Data exported as ${format.toUpperCase()}!`, "success");
+      } catch (error) {
+        console.error("Export failed:", error);
+        addNotification("Export failed", "error");
+      }
+    },
+    [data, addNotification]
+  );
+
+  // Enhanced filtering
+  const filteredEntries = useMemo(() => {
+    let filtered = [...data.entries];
+
+    if (searchQuery) {
+      filtered = filtered.filter(
+        (entry) =>
+          entry.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (entry.description &&
+            entry.description.toLowerCase().includes(searchQuery.toLowerCase()))
+      );
+    }
+
+    if (filterCategory !== "all") {
+      filtered = filtered.filter((entry) => entry.type === filterCategory);
+    }
+
+    return filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [data.entries, searchQuery, filterCategory]);
 
   useEffect(() => {
     const checkReminders = () => {
@@ -182,21 +458,6 @@ export default function App() {
       document.head.removeChild(appleTouchIcon);
     };
   }, []);
-
-  const addTransaction = (newTransaction) => {
-    setData((prevData) => ({
-      ...prevData,
-      totalSalary:
-        newTransaction.transactionType === "income"
-          ? prevData.totalSalary + newTransaction.amount
-          : prevData.totalSalary,
-      totalExpense:
-        newTransaction.transactionType === "expense"
-          ? prevData.totalExpense + newTransaction.amount
-          : prevData.totalExpense,
-      entries: [newTransaction, ...prevData.entries],
-    }));
-  };
 
   const addReminder = (newReminder) => {
     setData((prevData) => ({
@@ -357,11 +618,19 @@ export default function App() {
 
   const renderPage = () => {
     switch (currentPage) {
+      case "analytics":
+        return (
+          <AnalyticsPage
+            data={data}
+            analytics={analytics}
+            setCurrentPage={setCurrentPage}
+          />
+        );
       case "add":
         return (
           <AddPage
             setCurrentPage={setCurrentPage}
-            entries={data.entries.slice(0, 3)}
+            entries={filteredEntries.slice(0, 5)}
           />
         );
       case "add-income":
@@ -382,7 +651,23 @@ export default function App() {
         );
       case "entries":
         return (
-          <EntriesPage entries={data.entries} setCurrentPage={setCurrentPage} />
+          <EntriesPage
+            entries={filteredEntries}
+            setCurrentPage={setCurrentPage}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            filterCategory={filterCategory}
+            setFilterCategory={setFilterCategory}
+          />
+        );
+      case "settings":
+        return (
+          <SettingsPage
+            data={data}
+            setData={setData}
+            setCurrentPage={setCurrentPage}
+            onExport={exportData}
+          />
         );
       case "savings":
         return (
@@ -468,45 +753,76 @@ export default function App() {
       case "overview":
       default:
         return (
-          <>
-            <Header
-              setCurrentPage={setCurrentPage}
-              profileImage={data.profileImage}
-            />
-            <main className="flex-grow p-4 sm:p-6 space-y-6 overflow-y-auto">
-              <SummaryCards data={data} setCurrentPage={setCurrentPage} />
-              <ActionButtons
-                activeAction={activeAction}
-                setActiveAction={setActiveAction}
-                setCurrentPage={setCurrentPage}
-              />
-              <LatestEntries
-                entries={data.entries.slice(0, 3)}
-                setCurrentPage={setCurrentPage}
-              />
-            </main>
-          </>
+          <OverviewPage
+            data={data}
+            analytics={analytics}
+            setCurrentPage={setCurrentPage}
+            activeAction={activeAction}
+            setActiveAction={setActiveAction}
+          />
         );
     }
   };
 
   return (
-    <div className="bg-gray-50 flex justify-center items-center min-h-screen">
-      <div className="w-full max-w-md md:max-w-4xl bg-gray-100 font-sans shadow-lg rounded-lg flex flex-col h-screen md:h-[90vh] relative">
+    <div className="bg-gradient-to-br from-blue-50 to-indigo-100 flex justify-center items-center min-h-screen">
+      <div className="w-full max-w-md md:max-w-4xl bg-white font-sans shadow-2xl rounded-3xl flex flex-col h-screen md:h-[95vh] relative overflow-hidden">
+        {isLoading && <LoadingSpinner />}
+
         <div className="flex-grow overflow-hidden flex flex-col pb-20">
           {renderPage()}
         </div>
+
         <input
           type="file"
           ref={fileInputRef}
-          onChange={handleImport}
+          onChange={(e) => {
+            const file = e.target.files[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                try {
+                  const importedData = JSON.parse(event.target.result);
+                  if (
+                    importedData.entries &&
+                    Array.isArray(importedData.entries)
+                  ) {
+                    setData((prev) => ({
+                      ...prev,
+                      ...importedData,
+                      settings: { ...prev.settings, ...importedData.settings },
+                    }));
+                    addNotification("Data imported successfully!", "success");
+                  } else {
+                    addNotification("Invalid file format", "error");
+                  }
+                } catch (error) {
+                  addNotification("Failed to import data", "error");
+                }
+              };
+              reader.readAsText(file);
+            }
+          }}
           className="hidden"
           accept="application/json"
         />
+
         <input
           type="file"
           ref={imageInputRef}
-          onChange={handleImageChange}
+          onChange={(e) => {
+            const file = e.target.files[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                setData((prev) => ({
+                  ...prev,
+                  profileImage: event.target.result,
+                }));
+              };
+              reader.readAsDataURL(file);
+            }
+          }}
           className="hidden"
           accept="image/*"
         />
@@ -525,32 +841,481 @@ export default function App() {
 
 // --- Page Components ---
 
+// Overview Page Component - Mobile Optimized
+const OverviewPage = ({
+  data,
+  analytics,
+  setCurrentPage,
+  activeAction,
+  setActiveAction,
+}) => (
+  <>
+    <Header
+      setCurrentPage={setCurrentPage}
+      profileImage={data.profileImage}
+      userName={data.userName}
+    />
+    <main className="flex-grow p-3 space-y-4 overflow-y-auto bg-gradient-to-b from-gray-50 to-white">
+      <SummaryCards analytics={analytics} setCurrentPage={setCurrentPage} />
+      <ActionButtons
+        activeAction={activeAction}
+        setActiveAction={setActiveAction}
+        setCurrentPage={setCurrentPage}
+      />
+      <LatestEntries
+        entries={data.entries.slice(0, 4)}
+        setCurrentPage={setCurrentPage}
+      />
+    </main>
+  </>
+);
+
+// Analytics Page Component
+const AnalyticsPage = ({ data, analytics, setCurrentPage }) => (
+  <>
+    <PageHeader title="Analytics" onBack={() => setCurrentPage("overview")} />
+    <main className="flex-grow p-4 sm:p-6 space-y-6 overflow-y-auto">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <SpendingChart data={analytics} />
+        <CategoryBreakdown data={analytics.categorySpending} />
+        <SavingsProgress data={data.savings} />
+        <MonthlyStats analytics={analytics} />
+      </div>
+    </main>
+  </>
+);
+
+// Settings Page Component
+const SettingsPage = ({ data, setData, setCurrentPage, onExport }) => {
+  const updateSetting = (key, value) => {
+    setData((prevData) => ({
+      ...prevData,
+      settings: {
+        ...prevData.settings,
+        [key]: value,
+      },
+    }));
+  };
+
+  return (
+    <>
+      <PageHeader title="Settings" onBack={() => setCurrentPage("overview")} />
+      <main className="flex-grow p-4 sm:p-6 overflow-y-auto">
+        <div className="space-y-6">
+          {/* Profile Section */}
+          <div className="bg-white p-6 rounded-3xl shadow-lg">
+            <h3 className="text-lg font-bold mb-4">Profile</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  value={data.userName}
+                  onChange={(e) =>
+                    setData({ ...data, userName: e.target.value })
+                  }
+                  className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={data.userEmail}
+                  onChange={(e) =>
+                    setData({ ...data, userEmail: e.target.value })
+                  }
+                  className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* App Settings */}
+          <div className="bg-white p-6 rounded-3xl shadow-lg">
+            <h3 className="text-lg font-bold mb-4">App Settings</h3>
+            <div className="space-y-4">
+              <SettingToggle
+                label="Notifications"
+                description="Receive reminder notifications"
+                checked={data.settings?.notifications || false}
+                onChange={(checked) => updateSetting("notifications", checked)}
+              />
+              <SettingToggle
+                label="Auto Backup"
+                description="Automatically backup your data"
+                checked={data.settings?.autoBackup || false}
+                onChange={(checked) => updateSetting("autoBackup", checked)}
+              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Currency
+                </label>
+                <select
+                  value={data.settings?.currency || "USD"}
+                  onChange={(e) => updateSetting("currency", e.target.value)}
+                  className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="BDT">BDT (৳)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Data Management */}
+          <div className="bg-white p-6 rounded-3xl shadow-lg">
+            <h3 className="text-lg font-bold mb-4">Data Management</h3>
+            <div className="space-y-3">
+              <button
+                onClick={() => onExport("json")}
+                className="w-full flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                <Download size={20} />
+                Export Data (JSON)
+              </button>
+              <button
+                onClick={() => onExport("csv")}
+                className="w-full flex items-center justify-center gap-2 p-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+              >
+                <FileText size={20} />
+                Export Data (CSV)
+              </button>
+            </div>
+          </div>
+
+          {/* App Info */}
+          <div className="bg-white p-6 rounded-3xl shadow-lg">
+            <h3 className="text-lg font-bold mb-4">App Information</h3>
+            <div className="space-y-2 text-sm text-gray-600">
+              <p>Version: {data.version || "2.0.0"}</p>
+              <p>Total Entries: {data.entries?.length || 0}</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </>
+  );
+};
+
 const AddPage = ({ setCurrentPage, entries }) => (
   <>
-    <PageHeader title="Add" onBack={() => setCurrentPage("overview")} />
-    <main className="flex-grow p-4 sm:p-6 space-y-6 overflow-y-auto">
-      <div className="flex gap-4">
+    <PageHeader
+      title="Add Transaction"
+      onBack={() => setCurrentPage("overview")}
+    />
+    <main className="flex-grow p-3 space-y-4 overflow-y-auto">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           onClick={() => setCurrentPage("add-income")}
-          className="flex-1 flex items-center justify-center bg-white p-6 rounded-2xl shadow-sm text-center"
+          className="bg-gradient-to-br from-green-500 to-green-600 text-white p-6 rounded-2xl shadow-lg hover:shadow-xl transform active:scale-95 transition-all"
         >
-          <Wallet size={24} className="text-gray-500 mr-2" />
-          <span className="font-semibold text-gray-800">Add Income</span>
+          <TrendingUp size={28} className="mx-auto mb-2" />
+          <span className="block font-bold text-base">Add Income</span>
+          <span className="block text-green-100 text-sm">
+            Record money received
+          </span>
         </button>
+
         <button
           onClick={() => setCurrentPage("add-expense")}
-          className="flex-1 flex items-center justify-center bg-white p-6 rounded-2xl shadow-sm text-center"
+          className="bg-gradient-to-br from-red-500 to-red-600 text-white p-6 rounded-2xl shadow-lg hover:shadow-xl transform active:scale-95 transition-all"
         >
-          <Wallet size={24} className="text-gray-500 mr-2" />
-          <span className="font-semibold text-gray-800">Add Expense</span>
+          <TrendingDown size={28} className="mx-auto mb-2" />
+          <span className="block font-bold text-base">Add Expense</span>
+          <span className="block text-red-100 text-sm">Record money spent</span>
         </button>
       </div>
+
       <LatestEntries entries={entries} setCurrentPage={setCurrentPage} />
     </main>
   </>
 );
 
 const AddTransactionPage = ({ type, setCurrentPage, addTransaction }) => {
+  const [formData, setFormData] = useState({
+    type: type === "income" ? "Salary" : "Food & Dining",
+    amount: "",
+    category: "Personal",
+    description: "",
+    paymentMethod: "Cash",
+    date: new Date().toISOString().split("T")[0],
+  });
+  const [errors, setErrors] = useState({});
+
+  const categories = type === "income" ? incomeCategories : expenseCategories;
+
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!validateAmount(formData.amount)) {
+      newErrors.amount = "Please enter a valid amount";
+    }
+    if (!validateText(formData.type)) {
+      newErrors.type = "Please select a category";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    const transaction = {
+      ...formData,
+      transactionType: type,
+      amount: parseFloat(formData.amount),
+      id: Date.now() + Math.random(),
+      date: formData.date,
+    };
+
+    if (addTransaction(transaction)) {
+      setCurrentPage("overview");
+    }
+  };
+
+  return (
+    <>
+      <PageHeader
+        title={`Add ${type === "income" ? "Income" : "Expense"}`}
+        onBack={() => setCurrentPage("add")}
+      />
+      <main className="flex-grow p-3 overflow-y-auto">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="bg-white p-4 rounded-2xl shadow-md space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Amount *
+              </label>
+              <div className="relative">
+                <DollarSign
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                  size={18}
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.amount}
+                  onChange={(e) =>
+                    setFormData({ ...formData, amount: e.target.value })
+                  }
+                  className={`w-full pl-10 pr-4 py-3 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    errors.amount ? "border-red-500" : "border-gray-200"
+                  }`}
+                  placeholder="0.00"
+                />
+              </div>
+              {errors.amount && (
+                <p className="text-red-500 text-sm mt-1">{errors.amount}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Category *
+              </label>
+              <select
+                value={formData.type}
+                onChange={(e) =>
+                  setFormData({ ...formData, type: e.target.value })
+                }
+                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {categories.map((cat) => (
+                  <option key={cat.name} value={cat.name}>
+                    {cat.icon} {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Description
+              </label>
+              <input
+                type="text"
+                value={formData.description}
+                onChange={(e) =>
+                  setFormData({ ...formData, description: e.target.value })
+                }
+                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Optional description"
+                maxLength="100"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Payment Method
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {[
+                  "Cash",
+                  "Card",
+                  "Bank Transfer",
+                  "Digital Wallet",
+                  "Check",
+                  "Other",
+                ].map((method) => (
+                  <button
+                    key={method}
+                    type="button"
+                    onClick={() =>
+                      setFormData({ ...formData, paymentMethod: method })
+                    }
+                    className={`p-2 rounded-lg text-sm font-medium transition-colors active:scale-95 ${
+                      formData.paymentMethod === method
+                        ? "bg-blue-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    {method}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Date
+              </label>
+              <input
+                type="date"
+                value={formData.date}
+                onChange={(e) =>
+                  setFormData({ ...formData, date: e.target.value })
+                }
+                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold py-3 rounded-xl shadow-lg transform active:scale-95 transition-all duration-200"
+            >
+              Add {type === "income" ? "Income" : "Expense"}
+            </button>
+          </div>
+        </form>
+      </main>
+    </>
+  );
+};
+
+const EntriesPage = ({
+  entries,
+  setCurrentPage,
+  searchQuery,
+  setSearchQuery,
+  filterCategory,
+  setFilterCategory,
+}) => {
+  const [activeTab, setActiveTab] = useState("all");
+
+  const filteredByTab = entries.filter((entry) => {
+    if (activeTab === "all") return true;
+    if (activeTab === "income") return entry.transactionType === "income";
+    if (activeTab === "expense") return entry.transactionType === "expense";
+    return true;
+  });
+
+  return (
+    <>
+      <PageHeader
+        title="Transactions"
+        onBack={() => setCurrentPage("overview")}
+      />
+      <main className="flex-grow p-4 sm:p-6 flex flex-col">
+        {/* Search and Filter */}
+        <div className="bg-white p-4 rounded-2xl shadow-sm mb-4 space-y-3">
+          <div className="relative">
+            <Search
+              className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+              size={20}
+            />
+            <input
+              type="text"
+              placeholder="Search transactions..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto">
+            <button
+              onClick={() => setFilterCategory("all")}
+              className={`px-3 py-1 rounded-full text-sm whitespace-nowrap ${
+                filterCategory === "all"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-100 text-gray-700"
+              }`}
+            >
+              All
+            </button>
+            {[...expenseCategories, ...incomeCategories]
+              .slice(0, 5)
+              .map((cat) => (
+                <button
+                  key={cat.name}
+                  onClick={() => setFilterCategory(cat.name)}
+                  className={`px-3 py-1 rounded-full text-sm whitespace-nowrap ${
+                    filterCategory === cat.name
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {cat.icon} {cat.name}
+                </button>
+              ))}
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="bg-white p-1 rounded-2xl flex justify-around shadow-sm mb-4">
+          {["all", "income", "expense"].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-2 rounded-xl font-semibold text-sm transition-colors ${
+                activeTab === tab
+                  ? "bg-blue-500 text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Entries List */}
+        <div className="flex-grow space-y-3 overflow-y-auto">
+          {filteredByTab.length === 0 ? (
+            <div className="text-center text-gray-500 mt-10">
+              <FileText size={48} className="mx-auto mb-4 text-gray-300" />
+              <p>No transactions found.</p>
+            </div>
+          ) : (
+            filteredByTab.map((entry) => (
+              <EnhancedEntryItem key={entry.id} entry={entry} />
+            ))
+          )}
+        </div>
+      </main>
+    </>
+  );
+};
+
+const AddTransactionForm = ({ type, addTransaction, setCurrentPage }) => {
   const expenseTitles = [
     { name: "Food", icon: "🍔" },
     { name: "Transport", icon: "🚲" },
@@ -574,9 +1339,6 @@ const AddTransactionPage = ({ type, setCurrentPage, addTransaction }) => {
   const [category, setCategory] = useState("Personal");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isTitleDropdownOpen, setIsTitleDropdownOpen] = useState(false);
-
-  const incomeCategories = ["Personal", "Others"];
-  const expenseCategories = ["Personal", "Family", "Others"];
 
   const handleSubmit = () => {
     if (!title || !amount) {
@@ -741,53 +1503,6 @@ const AddTransactionPage = ({ type, setCurrentPage, addTransaction }) => {
             </button>
           </div>
         </form>
-      </main>
-    </>
-  );
-};
-
-const EntriesPage = ({ entries, setCurrentPage }) => {
-  const [activeTab, setActiveTab] = useState("all");
-
-  const sortedEntries = [...entries].sort(
-    (a, b) => new Date(b.date) - new Date(a.date)
-  );
-
-  return (
-    <>
-      <PageHeader title="Entries" onBack={() => setCurrentPage("overview")} />
-      <main className="flex-grow p-4 sm:p-6 flex flex-col">
-        <div className="bg-white p-1 rounded-full flex justify-around shadow-sm mb-6">
-          <button
-            onClick={() => setActiveTab("all")}
-            className={`w-full py-2 rounded-full font-semibold ${
-              activeTab === "all" ? "bg-[#1D41F9] text-white" : "text-gray-600"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setActiveTab("upcoming")}
-            className={`w-full py-2 rounded-full font-semibold ${
-              activeTab === "upcoming"
-                ? "bg-[#1D41F9] text-white"
-                : "text-gray-600"
-            }`}
-          >
-            Upcoming
-          </button>
-        </div>
-        <div className="flex-grow space-y-4 overflow-y-auto">
-          {activeTab === "all" &&
-            sortedEntries.map((entry) => (
-              <EntryItem key={entry.id} entry={entry} />
-            ))}
-          {activeTab === "upcoming" && (
-            <div className="text-center text-gray-500 mt-10">
-              <p>No upcoming entries.</p>
-            </div>
-          )}
-        </div>
       </main>
     </>
   );
@@ -1958,23 +2673,50 @@ const NotificationsPage = ({ notifications, setCurrentPage }) => {
 
 // --- Reusable Components ---
 
-const PageHeader = ({ title, onBack }) => (
-  <header className="flex items-center p-4 sm:p-6 bg-gray-100 flex-shrink-0">
-    <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200">
-      <ArrowLeft size={24} className="text-gray-800" />
-    </button>
-    <h1 className="text-2xl font-bold text-gray-800 mx-auto">{title}</h1>
-    <div className="w-10"></div> {/* Spacer */}
-  </header>
+// --- Enhanced Components ---
+
+// Loading Spinner Component
+const LoadingSpinner = () => (
+  <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+  </div>
 );
 
-const Header = ({ setCurrentPage, profileImage }) => (
-  <header className="flex justify-between items-center p-4 sm:p-6 bg-gray-100 flex-shrink-0">
-    <h1 className="text-3xl font-bold text-gray-800">Overview</h1>
+// Settings Toggle Component
+const SettingToggle = ({ label, description, checked, onChange }) => (
+  <div className="flex items-center justify-between">
+    <div>
+      <p className="font-medium text-gray-800">{label}</p>
+      <p className="text-sm text-gray-600">{description}</p>
+    </div>
+    <button
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+        checked ? "bg-blue-500" : "bg-gray-300"
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+          checked ? "translate-x-6" : "translate-x-1"
+        }`}
+      />
+    </button>
+  </div>
+);
+
+// Enhanced Header Component - Mobile Optimized
+const Header = ({ setCurrentPage, profileImage, userName }) => (
+  <header className="flex justify-between items-center p-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-t-2xl">
+    <div className="flex-1">
+      <h1 className="text-lg font-bold">
+        Hello, {userName?.split(" ")[0] || "User"}! 👋
+      </h1>
+      <p className="text-blue-100 text-xs">Welcome back to your dashboard</p>
+    </div>
     <div className="relative">
       <button
-        onClick={() => setCurrentPage("profile")}
-        className="w-12 h-12 rounded-full bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#1D41F9]"
+        onClick={() => setCurrentPage("settings")}
+        className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-white/50 overflow-hidden border-2 border-white/30"
       >
         <img
           src={profileImage}
@@ -1986,185 +2728,448 @@ const Header = ({ setCurrentPage, profileImage }) => (
   </header>
 );
 
-const SummaryCards = ({ data, setCurrentPage }) => {
-  const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
-
-  const monthlyEntries = data.entries.filter((e) => {
-    const entryDate = new Date(e.date);
-    return (
-      entryDate.getMonth() === currentMonth &&
-      entryDate.getFullYear() === currentYear
-    );
-  });
-
-  const monthlyIncome = monthlyEntries
-    .filter((e) => e.transactionType === "income")
-    .reduce((acc, entry) => acc + entry.amount, 0);
-
-  const monthlyExpense = monthlyEntries
-    .filter((e) => e.transactionType === "expense")
-    .reduce((acc, entry) => acc + entry.amount, 0);
-
-  return (
-    <div className="grid grid-cols-3 gap-3 text-center">
-      <div className="bg-[#1D41F9] text-white p-4 rounded-2xl shadow-lg">
-        <div className="flex items-center justify-center mb-2">
-          <Wallet size={20} />
-        </div>
-        <p className="text-sm">Total Balance</p>
-        <p className="text-xl font-bold">
-          ${Math.round(data.totalSalary - data.totalExpense).toLocaleString()}
-        </p>
-      </div>
-      <div className="bg-white p-4 rounded-2xl shadow-sm">
-        <div className="flex items-center justify-center text-gray-500 mb-2">
-          <Wallet size={20} />
-        </div>
-        <p className="text-sm text-gray-500">Monthly Income</p>
-        <p className="text-xl font-bold text-gray-800">
-          ${Math.round(monthlyIncome).toLocaleString()}
-        </p>
-      </div>
+// Enhanced Page Header Component
+const PageHeader = ({ title, onBack, actions = null }) => (
+  <header className="flex items-center justify-between p-6 bg-white border-b border-gray-100">
+    <div className="flex items-center">
       <button
-        onClick={() => setCurrentPage("expense-details")}
-        className="bg-white p-4 rounded-2xl shadow-sm text-center"
+        onClick={onBack}
+        className="p-2 rounded-full hover:bg-gray-100 transition-colors mr-3"
       >
-        <div className="flex items-center justify-center text-gray-500 mb-2">
-          <Wallet size={20} />
-        </div>
-        <p className="text-sm text-gray-500">Monthly Expense</p>
-        <p className="text-xl font-bold text-gray-800">
-          ${Math.round(monthlyExpense).toLocaleString()}
-        </p>
+        <ArrowLeft size={24} className="text-gray-700" />
       </button>
+      <h1 className="text-xl font-bold text-gray-800">{title}</h1>
     </div>
-  );
-};
+    {actions && <div className="flex items-center gap-2">{actions}</div>}
+  </header>
+);
 
-const ActionButtons = ({ activeAction, setActiveAction, setCurrentPage }) => {
-  const commonButtonClasses =
-    "flex items-center px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-200";
-  const activeClasses = "bg-[#1D41F9] text-white";
-  const inactiveClasses = "bg-gray-200 text-gray-700";
-
-  return (
-    <div className="bg-white p-4 rounded-2xl shadow-sm">
-      <div className="flex justify-around items-center flex-wrap gap-2">
-        <button
-          className={`${commonButtonClasses} ${
-            activeAction === "savings" ? activeClasses : inactiveClasses
-          }`}
-          onClick={() => {
-            setActiveAction("savings");
-            setCurrentPage("savings");
-          }}
-        >
-          <Plus size={16} className="mr-1" /> Savings
-        </button>
-        <button
-          className={`${commonButtonClasses} ${
-            activeAction === "remind" ? activeClasses : inactiveClasses
-          }`}
-          onClick={() => {
-            setActiveAction("remind");
-            setCurrentPage("reminders");
-          }}
-        >
-          <Bell size={16} className="mr-1" /> Remind
-        </button>
-        <button
-          className={`${commonButtonClasses} ${
-            activeAction === "budget" ? activeClasses : inactiveClasses
-          }`}
-          onClick={() => {
-            setActiveAction("budget");
-            setCurrentPage("budget");
-          }}
-        >
-          <Wallet size={16} className="mr-1" /> Budget
-        </button>
-      </div>
-      <div className="flex justify-center mt-4 space-x-1">
-        <div
-          className={`w-1.5 h-1.5 rounded-full transition-colors duration-200 ${
-            activeAction === "savings" ? "bg-[#1D41F9] w-3" : "bg-gray-300"
-          }`}
-        ></div>
-        <div
-          className={`w-1.5 h-1.5 rounded-full transition-colors duration-200 ${
-            activeAction === "remind" ? "bg-[#1D41F9] w-3" : "bg-gray-300"
-          }`}
-        ></div>
-        <div
-          className={`w-1.5 h-1.5 rounded-full transition-colors duration-200 ${
-            activeAction === "budget" ? "bg-[#1D41F9] w-3" : "bg-gray-300"
-          }`}
-        ></div>
-      </div>
-    </div>
-  );
-};
-
-const LatestEntries = ({ entries, setCurrentPage }) => (
+// Enhanced Summary Cards Component - Mobile Optimized
+const SummaryCards = ({ analytics, setCurrentPage }) => (
   <div className="space-y-4">
-    <div className="flex justify-between items-center">
-      <h2 className="text-xl font-bold text-gray-800">Latest Entries</h2>
+    {/* Main Balance Card - Full Width */}
+    <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-2xl shadow-lg">
+      <div className="flex items-center justify-between mb-2">
+        <div className="p-2 bg-white/20 rounded-full">
+          <Wallet size={20} />
+        </div>
+        <TrendingUp size={18} className="text-blue-200" />
+      </div>
+      <p className="text-blue-100 text-sm">Total Balance</p>
+      <p className="text-3xl font-bold mb-1">
+        {formatCurrency(analytics.totalBalance)}
+      </p>
+      <p className="text-blue-100 text-xs">Available funds</p>
+    </div>
+
+    {/* Income and Expense Row - Mobile Optimized */}
+    <div className="grid grid-cols-2 gap-3">
+      <div className="bg-white p-4 rounded-2xl shadow-lg border-l-4 border-green-500">
+        <div className="flex items-center mb-2">
+          <div className="p-1.5 bg-green-100 rounded-lg mr-2">
+            <TrendingUp size={16} className="text-green-600" />
+          </div>
+          <span className="text-xs text-gray-500">This Month</span>
+        </div>
+        <p className="text-gray-600 text-xs">Income</p>
+        <p className="text-lg font-bold text-gray-800">
+          {formatCurrency(analytics.monthlyIncome)}
+        </p>
+      </div>
+
       <button
-        className="text-gray-500"
-        onClick={() => setCurrentPage("entries")}
+        onClick={() => setCurrentPage("analytics")}
+        className="bg-white p-4 rounded-2xl shadow-lg text-left hover:shadow-xl transition-shadow border-l-4 border-red-500"
       >
-        <MoreHorizontal size={24} />
+        <div className="flex items-center mb-2">
+          <div className="p-1.5 bg-red-100 rounded-lg mr-2">
+            <TrendingDown size={16} className="text-red-600" />
+          </div>
+          <BarChart3 size={14} className="text-gray-400" />
+        </div>
+        <p className="text-gray-600 text-xs">Expense</p>
+        <p className="text-lg font-bold text-gray-800">
+          {formatCurrency(analytics.monthlyExpense)}
+        </p>
       </button>
     </div>
-    {entries.map((entry) => (
-      <EntryItem key={entry.id} entry={entry} />
-    ))}
   </div>
 );
 
-const EntryItem = ({ entry }) => {
+// Quick Insights Component - Mobile Optimized
+const QuickInsights = ({ analytics }) => (
+  <div className="bg-white p-4 rounded-2xl shadow-lg">
+    <h3 className="text-base font-bold text-gray-800 mb-3">Quick Insights</h3>
+    <div className="grid grid-cols-2 gap-3">
+      <div className="text-center p-3 bg-gray-50 rounded-lg">
+        <div
+          className={`text-xl font-bold ${
+            analytics.savingsRate >= 20
+              ? "text-green-600"
+              : analytics.savingsRate >= 10
+              ? "text-yellow-600"
+              : "text-red-600"
+          }`}
+        >
+          {analytics.savingsRate.toFixed(1)}%
+        </div>
+        <p className="text-xs text-gray-600">Savings Rate</p>
+      </div>
+      <div className="text-center p-3 bg-gray-50 rounded-lg">
+        <div className="text-xl font-bold text-blue-600">
+          {Object.keys(analytics.categorySpending).length}
+        </div>
+        <p className="text-xs text-gray-600">Categories</p>
+      </div>
+    </div>
+    <div className="mt-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg">
+      <p className="text-xs text-gray-700 text-center">
+        {analytics.savingsRate >= 20
+          ? "🎉 Excellent! You're saving well this month."
+          : analytics.savingsRate >= 10
+          ? "👍 Good savings rate. Try to increase it gradually."
+          : "💡 Try to save more for better financial health."}
+      </p>
+    </div>
+  </div>
+);
+
+// Enhanced Action Buttons Component - Mobile Optimized
+const ActionButtons = ({ activeAction, setActiveAction, setCurrentPage }) => {
+  const actions = [
+    { id: "savings", label: "Savings", icon: Target, color: "blue" },
+    { id: "analytics", label: "Analytics", icon: BarChart3, color: "green" },
+    { id: "budget", label: "Budget", icon: Wallet, color: "purple" },
+  ];
+
+  return (
+    <div className="bg-white p-4 rounded-2xl shadow-lg">
+      <div className="grid grid-cols-3 gap-2">
+        {actions.map((action) => {
+          const Icon = action.icon;
+          const isActive = activeAction === action.id;
+
+          return (
+            <button
+              key={action.id}
+              onClick={() => {
+                setActiveAction(action.id);
+                setCurrentPage(action.id);
+              }}
+              className={`p-3 rounded-xl text-center transition-all transform active:scale-95 ${
+                isActive
+                  ? "bg-blue-500 text-white shadow-md"
+                  : "bg-gray-50 text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Icon size={20} className="mx-auto mb-1" />
+              <p className="text-xs font-semibold">{action.label}</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// Enhanced Latest Entries Component - Mobile Optimized
+const LatestEntries = ({ entries, setCurrentPage }) => (
+  <div className="bg-white p-4 rounded-2xl shadow-lg">
+    <div className="flex justify-between items-center mb-3">
+      <h2 className="text-base font-bold text-gray-800">Recent Transactions</h2>
+      <button
+        onClick={() => setCurrentPage("entries")}
+        className="text-blue-500 text-sm font-semibold hover:text-blue-600 px-2 py-1 rounded-lg hover:bg-blue-50"
+      >
+        View All
+      </button>
+    </div>
+    <div className="space-y-2">
+      {entries.slice(0, 4).map((entry) => (
+        <EnhancedEntryItem key={entry.id} entry={entry} />
+      ))}
+      {entries.length === 0 && (
+        <div className="text-center py-6 text-gray-500">
+          <FileText size={32} className="mx-auto mb-2 text-gray-300" />
+          <p className="text-sm">No transactions yet.</p>
+          <p className="text-xs text-gray-400">
+            Start by adding your first transaction!
+          </p>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+// Enhanced Entry Item Component - Mobile Optimized
+const EnhancedEntryItem = ({ entry }) => {
   const isExpense = entry.transactionType === "expense";
   const colorClass = isExpense ? "text-red-500" : "text-green-500";
 
   const getIconForType = (type) => {
-    const lowerCaseType = type.toLowerCase();
-    if (lowerCaseType.includes("food")) return "🍔";
-    if (lowerCaseType.includes("transport") || lowerCaseType.includes("uber"))
-      return "🚲";
-    if (lowerCaseType.includes("shop")) return "🛍️";
-    if (lowerCaseType.includes("salary")) return "💰";
-    if (lowerCaseType.includes("rent")) return "🏠";
-    if (lowerCaseType.includes("bill")) return "🧾";
-    if (lowerCaseType.includes("movie")) return "🎬";
-    if (lowerCaseType.includes("lend")) return "💸";
-    if (lowerCaseType.includes("gift")) return "🎁";
-    if (lowerCaseType.includes("utilities")) return "💡";
-    if (lowerCaseType.includes("clothe")) return "👕";
-    if (lowerCaseType.includes("accesories")) return "💍";
-    if (lowerCaseType.includes("donation")) return "❤️";
-    if (lowerCaseType.includes("money back")) return "💸";
-    return "💵";
+    const iconMap = {
+      "Food & Dining": "🍔",
+      Transportation: "🚗",
+      Shopping: "🛍️",
+      Entertainment: "🎬",
+      "Bills & Utilities": "💡",
+      Healthcare: "🏥",
+      Education: "📚",
+      Travel: "✈️",
+      "Gifts & Donations": "🎁",
+      Personal: "👤",
+      Salary: "💰",
+      Freelance: "💻",
+      Business: "🏢",
+      Investment: "📈",
+      Gift: "🎁",
+      Refund: "💸",
+      Other: "💵",
+      Food: "🍔",
+      Transport: "🚗",
+    };
+    return iconMap[type] || "💵";
   };
 
   return (
-    <div className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm">
-      <div className="flex items-center">
-        <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mr-4 text-2xl">
-          {getIconForType(entry.type)}
+    <div className="bg-gray-50 p-3 rounded-xl hover:shadow-sm transition-shadow">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center flex-1 min-w-0">
+          <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center mr-3 text-lg shadow-sm">
+            {getIconForType(entry.type)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-800 text-sm truncate">
+              {entry.type}
+            </p>
+            <div className="flex items-center text-xs text-gray-500">
+              <span>{formatDate(entry.date)}</span>
+              {entry.paymentMethod && (
+                <>
+                  <span className="mx-1">•</span>
+                  <span>{entry.paymentMethod}</span>
+                </>
+              )}
+            </div>
+            {entry.description && (
+              <p className="text-xs text-gray-400 mt-0.5 truncate">
+                {entry.description}
+              </p>
+            )}
+          </div>
         </div>
-        <div>
-          <p className="font-bold text-gray-800">{entry.type}</p>
-          <p className="text-sm text-gray-500">{entry.date}</p>
+        <div className="text-right ml-2">
+          <p className={`font-bold text-sm ${colorClass}`}>
+            {isExpense ? "-" : "+"} {formatCurrency(entry.amount)}
+          </p>
         </div>
-      </div>
-      <div className="text-right">
-        <p className={`font-bold ${colorClass}`}>
-          {isExpense ? "-" : "+"} ${Math.round(entry.amount)}
-        </p>
-        <p className="text-sm text-gray-500">{entry.paymentMethod}</p>
       </div>
     </div>
+  );
+};
+
+// Analytics Components
+const SpendingChart = ({ data }) => (
+  <div className="bg-white p-6 rounded-3xl shadow-lg">
+    <h3 className="text-lg font-bold text-gray-800 mb-4">Monthly Overview</h3>
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <span className="text-gray-600">Income</span>
+        <span className="font-semibold text-green-600">
+          {formatCurrency(data.monthlyIncome)}
+        </span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-gray-600">Expenses</span>
+        <span className="font-semibold text-red-600">
+          {formatCurrency(data.monthlyExpense)}
+        </span>
+      </div>
+      <div className="flex justify-between items-center pt-2 border-t">
+        <span className="font-semibold text-gray-800">Net</span>
+        <span
+          className={`font-bold ${
+            data.monthlyIncome - data.monthlyExpense >= 0
+              ? "text-green-600"
+              : "text-red-600"
+          }`}
+        >
+          {formatCurrency(data.monthlyIncome - data.monthlyExpense)}
+        </span>
+      </div>
+    </div>
+  </div>
+);
+
+const CategoryBreakdown = ({ data }) => {
+  const categories = Object.entries(data).slice(0, 5);
+  const total = Object.values(data).reduce((sum, amount) => sum + amount, 0);
+
+  return (
+    <div className="bg-white p-6 rounded-3xl shadow-lg">
+      <h3 className="text-lg font-bold text-gray-800 mb-4">Top Categories</h3>
+      <div className="space-y-3">
+        {categories.map(([category, amount], index) => {
+          const percentage = total > 0 ? (amount / total) * 100 : 0;
+          const colors = [
+            "bg-blue-500",
+            "bg-green-500",
+            "bg-yellow-500",
+            "bg-red-500",
+            "bg-purple-500",
+          ];
+
+          return (
+            <div key={category}>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-sm font-medium text-gray-700">
+                  {category}
+                </span>
+                <span className="text-sm text-gray-600">
+                  {formatCurrency(amount)}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className={`h-2 rounded-full ${
+                    colors[index % colors.length]
+                  }`}
+                  style={{ width: `${percentage}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const SavingsProgress = ({ data }) => {
+  const percentage = Math.min(100, (data.current / data.monthlyGoal) * 100);
+
+  return (
+    <div className="bg-white p-6 rounded-3xl shadow-lg">
+      <h3 className="text-lg font-bold text-gray-800 mb-4">Savings Goal</h3>
+      <div className="text-center">
+        <div className="relative w-32 h-32 mx-auto mb-4">
+          <svg
+            className="w-full h-full transform -rotate-90"
+            viewBox="0 0 36 36"
+          >
+            <circle
+              className="text-gray-200"
+              strokeWidth="3"
+              stroke="currentColor"
+              fill="transparent"
+              r="15.9155"
+              cx="18"
+              cy="18"
+            />
+            <circle
+              className="text-blue-500"
+              strokeWidth="3"
+              strokeDasharray={`${percentage}, 100`}
+              strokeLinecap="round"
+              stroke="currentColor"
+              fill="transparent"
+              r="15.9155"
+              cx="18"
+              cy="18"
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-xl font-bold text-blue-600">
+              {percentage.toFixed(0)}%
+            </span>
+          </div>
+        </div>
+        <p className="text-sm text-gray-600">
+          {formatCurrency(data.current)} of {formatCurrency(data.monthlyGoal)}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+const MonthlyStats = ({ analytics }) => (
+  <div className="bg-white p-6 rounded-3xl shadow-lg">
+    <h3 className="text-lg font-bold text-gray-800 mb-4">Monthly Statistics</h3>
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <span className="text-gray-600">Savings Rate</span>
+        <span
+          className={`font-semibold ${
+            analytics.savingsRate >= 20
+              ? "text-green-600"
+              : analytics.savingsRate >= 10
+              ? "text-yellow-600"
+              : "text-red-600"
+          }`}
+        >
+          {analytics.savingsRate.toFixed(1)}%
+        </span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-gray-600">Total Balance</span>
+        <span className="font-semibold text-blue-600">
+          {formatCurrency(analytics.totalBalance)}
+        </span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-gray-600">Categories Used</span>
+        <span className="font-semibold text-purple-600">
+          {Object.keys(analytics.categorySpending).length}
+        </span>
+      </div>
+    </div>
+  </div>
+);
+
+// Enhanced Bottom Navigation - Mobile Optimized
+const BottomNav = ({
+  activeTab,
+  setCurrentPage,
+  unreadNotifications = false,
+  setData,
+}) => {
+  const navItems = [
+    { id: "overview", icon: Home, label: "Home" },
+    { id: "analytics", icon: BarChart3, label: "Analytics" },
+    { id: "entries", icon: FileText, label: "Entries" },
+    { id: "settings", icon: Settings, label: "Settings" },
+  ];
+
+  return (
+    <nav className="bg-white/95 backdrop-blur-sm shadow-2xl rounded-t-2xl border-t border-gray-100">
+      <div className="flex justify-around items-center py-2 px-1 relative">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id || activeTab.includes(item.id);
+
+          return (
+            <button
+              key={item.id}
+              onClick={() => setCurrentPage(item.id)}
+              className={`flex flex-col items-center py-2 px-3 transition-all ${
+                isActive ? "text-blue-500" : "text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              <Icon size={22} />
+              <span className="text-xs mt-0.5 font-medium">{item.label}</span>
+            </button>
+          );
+        })}
+
+        {/* Floating Add Button - Mobile Optimized */}
+        <button
+          onClick={() => setCurrentPage("add")}
+          className="absolute left-1/2 -translate-x-1/2 -top-6 bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-3 rounded-full shadow-xl border-4 border-white hover:shadow-2xl transform active:scale-95 transition-all"
+        >
+          <Plus size={24} />
+        </button>
+      </div>
+    </nav>
   );
 };
 
@@ -2524,71 +3529,5 @@ const BudgetPage = ({ data, setCurrentPage, updateBudget }) => {
         </div>
       )}
     </>
-  );
-};
-
-const BottomNav = ({
-  activeTab,
-  setCurrentPage,
-  unreadNotifications,
-  setData,
-}) => {
-  const handleNotificationClick = () => {
-    setCurrentPage("notifications");
-    setData((prev) => ({ ...prev, unreadNotifications: false }));
-  };
-
-  return (
-    <footer className="bg-white shadow-inner rounded-b-lg flex-shrink-0">
-      <div className="flex justify-around items-center p-4 relative">
-        <button
-          className={
-            activeTab === "overview" ? "text-[#1D41F9]" : "text-gray-400"
-          }
-          onClick={() => setCurrentPage("overview")}
-        >
-          <Home size={28} />
-        </button>
-        <button
-          className={
-            activeTab.includes("goal") || activeTab === "savings"
-              ? "text-[#1D41F9]"
-              : "text-gray-400"
-          }
-          onClick={() => setCurrentPage("savings")}
-        >
-          <Wallet size={28} />
-        </button>
-
-        <div className="w-12"></div>
-
-        <button
-          className={`relative ${
-            activeTab === "notifications" ? "text-[#1D41F9]" : "text-gray-400"
-          }`}
-          onClick={handleNotificationClick}
-        >
-          <Bell size={28} />
-          {unreadNotifications && (
-            <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500"></span>
-          )}
-        </button>
-        <button
-          className={
-            activeTab === "profile" ? "text-[#1D41F9]" : "text-gray-400"
-          }
-          onClick={() => setCurrentPage("profile")}
-        >
-          <User size={28} />
-        </button>
-
-        <button
-          onClick={() => setCurrentPage("add")}
-          className="absolute left-1/2 -translate-x-1/2 -top-6 bg-[#1D41F9] text-white p-4 rounded-full shadow-lg border-4 border-gray-100"
-        >
-          <Plus size={32} />
-        </button>
-      </div>
-    </footer>
   );
 };
